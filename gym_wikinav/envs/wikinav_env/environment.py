@@ -1,3 +1,6 @@
+from io import StringIO
+import sys
+
 import gym
 from gym import error, spaces, utils
 from gym.utils import seeding
@@ -6,6 +9,8 @@ from gym_wikinav.envs.wikinav_env import web_graph
 
 
 class WikiNavEnv(gym.Env):
+
+    metadata = {"render.modes": ["human", "ansi"]}
 
     def __init__(self, beam_size=32, graph=None, goal_reward=10.0):
         """
@@ -31,6 +36,8 @@ class WikiNavEnv(gym.Env):
                                              self.path_length)
 
         self._action_space = spaces.Discrete(self.beam_size)
+
+        self._just_reset = False
 
     @property
     def action_space(self):
@@ -64,7 +71,10 @@ class WikiNavEnv(gym.Env):
 
     def _reset(self):
         self.navigator.reset()
-        return self._observe()
+        self._just_reset = True
+        obs = self._observe()
+        self._just_reset = False
+        return obs
 
     def _observe(self):
         # abstract
@@ -79,7 +89,13 @@ class WikiNavEnv(gym.Env):
         raise NotImplementedError
 
     def _render(self, mode="human", close=False):
-        pass
+        if close: return
+
+        outfile = StringIO() if mode == "ansi" else sys.stdout
+
+        cur_page = self.graph.get_article_title(self.cur_article_id)
+        outfile.write("%s\n" % cur_page)
+        return outfile
 
 
 class EmbeddingWikiNavEnv(WikiNavEnv):
@@ -93,7 +109,6 @@ class EmbeddingWikiNavEnv(WikiNavEnv):
 
         self.embedding_dim = self.graph.embedding_dim
 
-        self._just_reset = False
         self._query_embedding = None
 
     @property
@@ -103,15 +118,10 @@ class EmbeddingWikiNavEnv(WikiNavEnv):
         return spaces.Box(low=-np.inf, high=np.inf,
                           shape=(2 + self.beam_size, self.embedding_dim))
 
-    def _reset(self):
-        self._just_reset = True
-        return super(EmbeddingWikiNavEnv, self)._reset()
-
     def _observe(self):
         if self._just_reset:
             self._query_embedding = \
                     self.graph.get_query_embeddings([self.navigator._path])[0]
-            self._just_reset = False
 
         current_page_embedding = \
                 self.graph.get_article_embeddings([self.cur_article_id])[0]
